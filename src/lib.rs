@@ -1271,48 +1271,42 @@ impl<EntityType: Entity> EntityRegistry<EntityType> {
         }
     }
 
-    //	/ Destroys an entity and lets the registry recycle the identifier.
-    //	/
-    //	/ When an entity is destroyed, its version is updated and the identifier
-    //	/ can be recycled at any time.
-    //	/
-    //	/ WARNING:
-    //	/
-    //	/ In case there are listeners that observe the destruction of components
-    //	/ and assign other components to the entity in their bodies, the result of
-    //	/ invoking this function may not be as expected. In the worst case, it
-    //	/ could lead to undefined behavior. An assertion will abort the execution
-    //	/ at runtime in debug mode if a violation is detected.
-    //	/
-    //	/ WARNING:
-    //	/
-    //	/ Attempting to use an invalid entity results in undefined behavior.
-    //	/
-    //	/ An assertion will abort the execution at runtime in debug mode in case of
-    //	/ invalid entity.
-    //	/
-    //	/ ```
-    //	/ # use enrs::entity::entity::Entity;
-    //	/ let mut registry = enrs::entity::registries::EntityRegistry::<u32>::default();
-    //	/ let entity1 = registry.create();
-    //	/ let entity2 = registry.create();
-    //	/ assert_eq!(entity1, 0x00000001);
-    //	/ assert_eq!(entity2, 0x00000002);
-    //	/ // registry.assign(entity1, 42u32);
-    //	/ registry.destroy(entity1);
-    //	/ let entity1 = registry.create();
-    //	/ assert_eq!(entity1, 0x00100001);
-    //	/ ```
-    pub(crate) fn destroy(&mut self, entity: EntityType) {
+    /// Destroys an entity and lets the registry recycle the identifier.
+    ///
+    /// When an entity is destroyed, its version is updated and the identifier
+    /// can be recycled at any time.
+    ///
+    /// WARNING:
+    ///
+    /// In case there are listeners that observe the destruction of components
+    /// and assign other components to the entity in their bodies, the result of
+    /// invoking this function may not be as expected. In the worst case, it
+    /// could lead to undefined behavior. An assertion will abort the execution
+    /// at runtime in debug mode if a violation is detected.
+    ///
+    /// WARNING:
+    ///
+    /// Attempting to use an invalid entity results in undefined behavior.
+    ///
+    /// An assertion will abort the execution at runtime in debug mode in case of
+    /// invalid entity.
+    ///
+    /// ```
+    /// # use enrs::entity::entity::Entity;
+    /// let mut registry = enrs::entity::registries::EntityRegistry::<u32>::default();
+    /// let entity1 = registry.create();
+    /// let entity2 = registry.create();
+    /// assert_eq!(entity1, 0x00000001);
+    /// assert_eq!(entity2, 0x00000002);
+    /// // registry.assign(entity1, 42u32);
+    /// registry.destroy(entity1);
+    /// let entity1 = registry.create();
+    /// assert_eq!(entity1, 0x00100001);
+    /// ```
+    pub fn destroy(&mut self, entity: EntityType) {
         #[cfg(not(enrs_disable_asserts))]
         assert!(self.valid(entity));
         let idx = entity.idx();
-
-        //		let mut map = self.pools.borrow_mut();
-        //		map.iter_mut().for_each(|(_id, pool)| {
-        //			pool.remove_if_contains(self, entity);
-        //		});
-
         (&mut self.entities[idx]).bump_version_with_idx(self.destroyed.idx());
         self.destroyed = EntityType::new(idx);
     }
@@ -1474,14 +1468,14 @@ unsigned_integral_entity!(
     32,
     "`u64` Entity, Index: 32 bits, Generation: 32 bits, Invalid ID: 0, Max: 4294967295"
 );
-unsigned_integral_entity!(
-    u128,
-    u64,
-    0x00000000_00000000_FFFFFFFF_FFFFFFFF,
-    0xFFFFFFFF_FFFFFFFF_00000000_00000000,
-    64,
-    "`u64` Entity, Index: 32 bits, Generation: 32 bits, Invalid ID: 0, Max: 4294967295"
-);
+// unsigned_integral_entity!(
+//     u128,
+//     u64,
+//     0x00000000_00000000_FFFFFFFF_FFFFFFFF,
+//     0xFFFFFFFF_FFFFFFFF_00000000_00000000,
+//     64,
+//     "`u64` Entity, Index: 32 bits, Generation: 32 bits, Invalid ID: 0, Max: 4294967295"
+// );
 
 #[macro_export]
 macro_rules! delegate_wrapped_entity {

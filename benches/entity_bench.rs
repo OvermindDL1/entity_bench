@@ -1,8 +1,8 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use entity_bench::SparseSet;
-use std::sync::{Arc, RwLock};
+use std::sync::RwLock;
 
-mod LinearLocked {
+mod linear_locked {
     #[derive(Default)]
     pub struct EntityRegistry {
         /// `entities` is interesting in that alive ones have their internal index
@@ -41,7 +41,7 @@ mod LinearLocked {
     }
 }
 
-mod LinearAtomic {
+mod linear_atomic {
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::sync::RwLock;
 
@@ -63,7 +63,7 @@ mod LinearAtomic {
         pub fn create(&mut self) -> u64 {
             match self.dead.pop() {
                 Some(id) => {
-                    let idx = (id & 0x0000_0000_FFFF_FFFF);
+                    let idx = id & 0x0000_0000_FFFF_FFFF;
                     let entity = idx + ((id & 0xFFFF_FFFF_0000_0000) + 0x0000_0001_0000_0000);
                     self.entities.write().unwrap()[idx as usize].store(entity, Ordering::Relaxed);
                     entity
@@ -79,9 +79,8 @@ mod LinearAtomic {
     }
 }
 
-mod Random {
+mod random_hashmap {
     use std::collections::HashMap;
-    use std::sync::RwLock;
 
     #[derive(Default)]
     pub struct EntityRegistry {
@@ -102,9 +101,8 @@ mod Random {
     }
 }
 
-mod RandomSparse {
+mod random_sparse {
     use entity_bench::SparseSet;
-    use std::sync::RwLock;
 
     #[derive(Default)]
     pub struct EntityRegistry {
@@ -127,7 +125,6 @@ mod RandomSparse {
 
 mod random_ahash {
     use hashbrown::HashMap;
-    use std::sync::RwLock;
 
     #[derive(Default)]
     pub struct EntityRegistry {
@@ -152,34 +149,34 @@ pub fn criterion_benchmark(c: &mut Criterion) {
     {
         let mut c = c.benchmark_group("create");
         c.bench_function("create-linear", |b| {
-            let mut reg = LinearLocked::EntityRegistry::new(1_000_000);
+            let mut reg = linear_locked::EntityRegistry::new(1_000_000);
             b.iter(|| {
                 black_box(reg.create());
             });
             black_box(reg.entities.len());
         });
         c.bench_function("create-linear-locked", |b| {
-            let mut reg = RwLock::new(LinearLocked::EntityRegistry::new(1_000_000));
+            let reg = RwLock::new(linear_locked::EntityRegistry::new(1_000_000));
             b.iter(|| {
                 black_box(reg.write().unwrap().create());
             });
             black_box(reg.read().unwrap().entities.len());
         });
         c.bench_function("create-linear-atomic", |b| {
-            let mut reg = LinearAtomic::EntityRegistry::default();
+            let mut reg = linear_atomic::EntityRegistry::default();
             b.iter(|| {
                 black_box(reg.create());
             });
         });
         c.bench_function("create-rand", |b| {
-            let mut reg = Random::EntityRegistry::new(1_000_000);
+            let mut reg = random_hashmap::EntityRegistry::new(1_000_000);
             b.iter(|| {
                 black_box(reg.create());
             });
             black_box(reg.entities.len());
         });
         c.bench_function("create-rand-sparse", |b| {
-            let mut reg = RandomSparse::EntityRegistry::new(1_000_000);
+            let mut reg = random_sparse::EntityRegistry::new(1_000_000);
             b.iter(|| {
                 black_box(reg.create());
             });
@@ -193,7 +190,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
             black_box(reg.entities.len());
         });
         c.bench_function("create-rand-locked", |b| {
-            let mut reg = RwLock::new(Random::EntityRegistry::new(1_000_000));
+            let reg = RwLock::new(random_hashmap::EntityRegistry::new(1_000_000));
             b.iter(|| {
                 black_box(reg.write().unwrap().create());
             });
