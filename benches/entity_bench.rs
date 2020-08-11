@@ -179,14 +179,14 @@ pub fn criterion_benchmark(c: &mut Criterion) {
             black_box(reg.entities.len());
         });
         c.bench_function("create-rand-sparse", |b| {
-            let mut reg = RandomSparse::EntityRegistry::new(0);
+            let mut reg = RandomSparse::EntityRegistry::new(1_000_000);
             b.iter(|| {
                 black_box(reg.create());
             });
             black_box(reg.entities.len());
         });
         c.bench_function("create-rand-ahash", |b| {
-            let mut reg = random_ahash::EntityRegistry::new(0);
+            let mut reg = random_ahash::EntityRegistry::new(1_000_000);
             b.iter(|| {
                 black_box(reg.create());
             });
