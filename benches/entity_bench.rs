@@ -1,79 +1,43 @@
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use entity_bench::SparseSet;
-use std::sync::RwLock;
+use criterion::{black_box, criterion_group, criterion_main, BatchSize, Criterion};
 
-mod linear_locked {
+mod linear {
+    use entity_bench::Entity;
+
     #[derive(Default)]
-    pub struct EntityRegistry {
+    pub struct EntityRegistry<EntityType: Entity> {
         /// `entities` is interesting in that alive ones have their internal index
         /// match their actual index, if it's dead they don't.  If it's dead the
         /// internal index actually points to the actual index of the next 'dead'
         /// one, thus making a handle-based link-list.  If it points to
         /// `0` then there are no more dead entities and a new one needs to be
         /// created.  The generation gets incremented on destruction.
-        pub entities: Vec<u64>,
+        pub entities: Vec<EntityType>,
         /// This is the 'head' of the singly-linked list of destroyed entities.
-        pub destroyed: u64,
+        pub destroyed: EntityType,
     }
 
-    impl EntityRegistry {
-        pub fn new(cap: usize) -> EntityRegistry {
-            EntityRegistry {
+    impl<EntityType: Entity> EntityRegistry<EntityType> {
+        pub fn new(cap: usize) -> EntityRegistry<EntityType> {
+            let mut registry = EntityRegistry {
                 entities: Vec::with_capacity(cap),
-                destroyed: 0,
-            }
+                destroyed: EntityType::new(0),
+            };
+            registry.entities.push(EntityType::new(0)); // First is the null entity
+            registry
         }
-        pub fn create(&mut self) -> u64 {
-            if self.destroyed == 0 {
+
+        pub fn create(&mut self) -> EntityType {
+            if self.destroyed.is_null() {
                 // `destroyed` linked list is empty
-                let entity = self.entities.len() as u64;
+                let entity = EntityType::new(self.entities.len());
                 self.entities.push(entity);
                 entity
             } else {
-                let head = self.destroyed;
+                let head = self.destroyed.idx();
                 // TODO:  This should be safe to make unsafe and use `get_unchecked`
-                let head_entity = &mut self.entities[head as usize];
-                self.destroyed = *head_entity & 0x0000_0000_FFFF_FFFF; // New head of destroyed list
-                *head_entity = (*head_entity & 0x0000_0000_FFFF_FFFF) + head;
-                *head_entity
-            }
-        }
-    }
-}
-
-mod linear_atomic {
-    use std::sync::atomic::{AtomicU64, Ordering};
-    use std::sync::RwLock;
-
-    pub struct EntityRegistry {
-        pub entities: RwLock<Vec<AtomicU64>>,
-        pub dead: crossbeam::deque::Worker<u64>,
-    }
-
-    impl Default for EntityRegistry {
-        fn default() -> Self {
-            EntityRegistry {
-                entities: Default::default(),
-                dead: crossbeam::deque::Worker::new_lifo(),
-            }
-        }
-    }
-
-    impl EntityRegistry {
-        pub fn create(&mut self) -> u64 {
-            match self.dead.pop() {
-                Some(id) => {
-                    let idx = id & 0x0000_0000_FFFF_FFFF;
-                    let entity = idx + ((id & 0xFFFF_FFFF_0000_0000) + 0x0000_0001_0000_0000);
-                    self.entities.write().unwrap()[idx as usize].store(entity, Ordering::Relaxed);
-                    entity
-                }
-                None => {
-                    let mut entities = self.entities.write().unwrap();
-                    let entity = entities.len() as u64;
-                    entities.push(AtomicU64::new(entity));
-                    entity
-                }
+                let head_entity = &mut self.entities[head];
+                self.destroyed = EntityType::new(head_entity.idx()); // New head of destroyed list
+                *head_entity.set_idx(head)
             }
         }
     }
@@ -84,7 +48,7 @@ mod random_hashmap {
 
     #[derive(Default)]
     pub struct EntityRegistry {
-        pub entities: HashMap<u32, ()>,
+        pub entities: HashMap<u128, ()>,
     }
 
     impl EntityRegistry {
@@ -93,31 +57,10 @@ mod random_hashmap {
                 entities: HashMap::with_capacity(cap),
             }
         }
-        pub fn create(&mut self) -> u32 {
-            let entity: u32 = rand::random();
+
+        pub fn create(&mut self) -> u128 {
+            let entity: u128 = rand::random();
             self.entities.insert(entity, ());
-            entity
-        }
-    }
-}
-
-mod random_sparse {
-    use entity_bench::SparseSet;
-
-    #[derive(Default)]
-    pub struct EntityRegistry {
-        pub entities: SparseSet<u64, ()>,
-    }
-
-    impl EntityRegistry {
-        pub fn new(cap: usize) -> EntityRegistry {
-            EntityRegistry {
-                entities: SparseSet::with_capacity(cap),
-            }
-        }
-        pub fn create(&mut self) -> u32 {
-            let entity: u32 = rand::random();
-            self.entities.insert(entity as u64, ());
             entity
         }
     }
@@ -128,7 +71,7 @@ mod random_ahash {
 
     #[derive(Default)]
     pub struct EntityRegistry {
-        pub entities: HashMap<u64, ()>,
+        pub entities: HashMap<u128, ()>,
     }
 
     impl EntityRegistry {
@@ -137,9 +80,10 @@ mod random_ahash {
                 entities: HashMap::with_capacity(cap),
             }
         }
-        pub fn create(&mut self) -> u32 {
-            let entity: u32 = rand::random();
-            self.entities.insert(entity as u64, ());
+
+        pub fn create(&mut self) -> u128 {
+            let entity: u128 = rand::random();
+            self.entities.insert(entity, ());
             entity
         }
     }
@@ -148,131 +92,46 @@ mod random_ahash {
 pub fn criterion_benchmark(c: &mut Criterion) {
     {
         let mut c = c.benchmark_group("create");
-        c.bench_function("create-linear", |b| {
-            let mut reg = linear_locked::EntityRegistry::new(1_000_000);
-            b.iter(|| {
-                black_box(reg.create());
-            });
-            black_box(reg.entities.len());
+        c.bench_function("create-linear-u32", |b| {
+            b.iter_batched_ref(
+                || linear::EntityRegistry::<u32>::new(32),
+                |reg| black_box(reg.create()),
+                BatchSize::LargeInput,
+            );
         });
-        c.bench_function("create-linear-locked", |b| {
-            let reg = RwLock::new(linear_locked::EntityRegistry::new(1_000_000));
-            b.iter(|| {
-                black_box(reg.write().unwrap().create());
-            });
-            black_box(reg.read().unwrap().entities.len());
+        c.bench_function("create-linear-u64", |b| {
+            b.iter_batched_ref(
+                || linear::EntityRegistry::<u64>::new(32),
+                |reg| black_box(reg.create()),
+                BatchSize::LargeInput,
+            );
         });
-        c.bench_function("create-linear-atomic", |b| {
-            let mut reg = linear_atomic::EntityRegistry::default();
-            b.iter(|| {
-                black_box(reg.create());
-            });
+        c.bench_function("create-linear-u128", |b| {
+            b.iter_batched_ref(
+                || linear::EntityRegistry::<u128>::new(32),
+                |reg| black_box(reg.create()),
+                BatchSize::LargeInput,
+            );
         });
-        c.bench_function("create-rand-hashmap", |b| {
-            let mut reg = random_hashmap::EntityRegistry::new(1_000_000);
-            b.iter(|| {
-                black_box(reg.create());
-            });
-            black_box(reg.entities.len());
+        c.bench_function("create-u128-rand-hashmap", |b| {
+            b.iter_batched_ref(
+                || random_hashmap::EntityRegistry::new(32),
+                |reg| black_box(reg.create()),
+                BatchSize::LargeInput,
+            );
         });
-        c.bench_function("create-rand-sparse", |b| {
-            let mut reg = random_sparse::EntityRegistry::new(1_000_000);
-            b.iter(|| {
-                black_box(reg.create());
-            });
-            black_box(reg.entities.len());
+        c.bench_function("create-u128-rand-ahash", |b| {
+            b.iter_batched_ref(
+                || random_ahash::EntityRegistry::new(32),
+                |reg| black_box(reg.create()),
+                BatchSize::LargeInput,
+            );
         });
-        c.bench_function("create-rand-ahash", |b| {
-            let mut reg = random_ahash::EntityRegistry::new(1_000_000);
-            b.iter(|| {
-                black_box(reg.create());
-            });
-            black_box(reg.entities.len());
-        });
-        c.bench_function("create-rand-locked", |b| {
-            let reg = RwLock::new(random_hashmap::EntityRegistry::new(1_000_000));
-            b.iter(|| {
-                black_box(reg.write().unwrap().create());
-            });
-            black_box(reg.read().unwrap().entities.len());
-        });
-        c.bench_function("create-rand-by-itself", |b| {
+        c.bench_function("create-u128-rand-by-itself", |b| {
             b.iter(|| {
                 let entity: u128 = black_box(rand::random());
                 black_box(entity);
             });
-        });
-    }
-    {
-        let mut c = c.benchmark_group("get");
-        c.bench_function("sparsemap", |b| {
-            let mut map = SparseSet::new();
-            for entity in 0..1_000u64 {
-                map.insert(entity, ());
-            }
-            b.iter(|| {
-                black_box(map.get(black_box(42)));
-            });
-            black_box(map.len());
-        });
-        c.bench_function("hashmap", |b| {
-            let mut map = std::collections::HashMap::new();
-            for entity in 0..1_000u64 {
-                map.insert(entity, ());
-            }
-            b.iter(|| {
-                black_box(map.get(black_box(&42)));
-            });
-            black_box(map.len());
-        });
-        c.bench_function("ahashmap", |b| {
-            let mut map = hashbrown::HashMap::new();
-            for entity in 0..1_000u64 {
-                map.insert(entity, ());
-            }
-            b.iter(|| {
-                black_box(map.get(black_box(&42)));
-            });
-            black_box(map.len());
-        });
-    }
-    {
-        let mut c = c.benchmark_group("iterate");
-        c.bench_function("sparsemap", |b| {
-            let mut map = SparseSet::new();
-            for entity in 0..1_000u64 {
-                map.insert(entity, ());
-            }
-            b.iter(|| {
-                for entity in map.entities() {
-                    black_box(entity);
-                }
-            });
-            black_box(map.len());
-        });
-        c.bench_function("hashmap", |b| {
-            let mut map = std::collections::HashMap::new();
-            for entity in 0..1_000u64 {
-                map.insert(entity, ());
-            }
-            b.iter(|| {
-                for entity in map.keys() {
-                    black_box(entity);
-                }
-            });
-            black_box(map.len());
-        });
-        c.bench_function("ahashmap", |b| {
-            let mut map = hashbrown::HashMap::new();
-            for entity in 0..1_000u64 {
-                map.insert(entity, ());
-            }
-            b.iter(|| {
-                for entity in map.keys() {
-                    black_box(entity);
-                }
-            });
-            black_box(map.len());
         });
     }
 }
