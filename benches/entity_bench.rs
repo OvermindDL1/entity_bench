@@ -168,7 +168,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
                 black_box(reg.create());
             });
         });
-        c.bench_function("create-rand", |b| {
+        c.bench_function("create-rand-hashmap", |b| {
             let mut reg = random_hashmap::EntityRegistry::new(1_000_000);
             b.iter(|| {
                 black_box(reg.create());
