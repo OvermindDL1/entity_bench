@@ -1,5 +1,5 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use entity_create_bench::SparseSet;
+use entity_bench::SparseSet;
 use std::sync::{Arc, RwLock};
 
 mod LinearLocked {
@@ -103,7 +103,7 @@ mod Random {
 }
 
 mod RandomSparse {
-    use entity_create_bench::SparseSet;
+    use entity_bench::SparseSet;
     use std::sync::RwLock;
 
     #[derive(Default)]
